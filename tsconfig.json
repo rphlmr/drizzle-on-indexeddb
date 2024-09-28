@@ -15,6 +15,7 @@
     "jsx": "react-jsx",
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
+    "module": "ESNext",
     "target": "ES2022",
     "strict": true,
     "allowJs": true,

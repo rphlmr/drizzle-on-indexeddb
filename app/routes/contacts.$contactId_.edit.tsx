@@ -1,29 +1,82 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
-import { Form, redirect, useLoaderData, useNavigate } from "@remix-run/react";
-import invariant from "tiny-invariant";
+import {
+  ClientActionFunctionArgs,
+  ClientLoaderFunctionArgs,
+  Form,
+  redirect,
+  useLoaderData,
+  useNavigate,
+} from "@remix-run/react";
+import { assert, matchSchema } from "comply";
+import { eq } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
+import { db } from "~/database/.client/db";
+import { guard } from "~/guard";
 
-import { getContact, updateContact } from "../data";
+const emptyContact = {
+  id: undefined,
+  avatar: "",
+  first: "",
+  last: "",
+  twitter: "",
+  notes: "",
+} satisfies typeof db.schema.contact.$inferInsert & { id: undefined };
 
-export const loader = async ({ params }: LoaderFunctionArgs) => {
-  invariant(params.contactId, "Missing contactId param");
-  const contact = await getContact(params.contactId);
+export const clientLoader = async ({ params }: ClientLoaderFunctionArgs) => {
+  assert(guard.policy("has valid params"), params);
+
+  if (params.contactId === "new") {
+    return {
+      contact: emptyContact,
+    };
+  }
+
+  const contact = await db.query.contact.findFirst({
+    where: eq(db.schema.contact.id, Number(params.contactId)),
+  });
+
   if (!contact) {
     throw new Response("Not Found", { status: 404 });
   }
-  return json({ contact });
+
+  return { contact };
 };
 
-export const action = async ({ params, request }: ActionFunctionArgs) => {
-  invariant(params.contactId, "Missing contactId param");
+export const clientAction = async ({
+  params,
+  request,
+}: ClientActionFunctionArgs) => {
+  assert(guard.policy("has valid params"), params);
+
   const formData = await request.formData();
-  const updates = Object.fromEntries(formData);
-  await updateContact(params.contactId, updates);
+  const payload = Object.fromEntries(formData) as unknown;
+
+  assert(
+    "has expected payload",
+    matchSchema(
+      createInsertSchema(db.schema.contact).omit({ fts: true, id: true })
+    ),
+    payload
+  );
+
+  if (params.contactId === "new") {
+    const [{ contactId }] = await db
+      .insert(db.schema.contact)
+      .values(payload)
+      .returning({ contactId: db.schema.contact.id });
+
+    return redirect(`/contacts/${contactId}`);
+  }
+
+  await db
+    .update(db.schema.contact)
+    .set(payload)
+    .where(eq(db.schema.contact.id, Number(params.contactId)));
+
   return redirect(`/contacts/${params.contactId}`);
 };
 
 export default function EditContact() {
-  const { contact } = useLoaderData<typeof loader>();
+  const { contact } = useLoaderData<typeof clientLoader>();
   const navigate = useNavigate();
 
   return (
@@ -31,7 +84,7 @@ export default function EditContact() {
       <p>
         <span>Name</span>
         <input
-          defaultValue={contact.first}
+          defaultValue={contact.first ?? undefined}
           aria-label="First name"
           name="first"
           type="text"
@@ -39,7 +92,7 @@ export default function EditContact() {
         />
         <input
           aria-label="Last name"
-          defaultValue={contact.last}
+          defaultValue={contact.last ?? undefined}
           name="last"
           placeholder="Last"
           type="text"
@@ -48,7 +101,7 @@ export default function EditContact() {
       <label>
         <span>Twitter</span>
         <input
-          defaultValue={contact.twitter}
+          defaultValue={contact.twitter ?? undefined}
           name="twitter"
           placeholder="@jack"
           type="text"
@@ -58,7 +111,7 @@ export default function EditContact() {
         <span>Avatar URL</span>
         <input
           aria-label="Avatar URL"
-          defaultValue={contact.avatar}
+          defaultValue={contact.avatar ?? undefined}
           name="avatar"
           placeholder="https://example.com/avatar.jpg"
           type="text"
@@ -66,7 +119,11 @@ export default function EditContact() {
       </label>
       <label>
         <span>Notes</span>
-        <textarea defaultValue={contact.notes} name="notes" rows={6} />
+        <textarea
+          defaultValue={contact.notes ?? undefined}
+          name="notes"
+          rows={6}
+        />
       </label>
       <p>
         <button type="submit">Save</button>

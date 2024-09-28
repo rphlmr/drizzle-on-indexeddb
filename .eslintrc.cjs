@@ -22,7 +22,23 @@ module.exports = {
   ignorePatterns: ["!**/.server", "!**/.client"],
 
   // Base config
-  extends: ["eslint:recommended"],
+  extends: ["eslint:recommended", "plugin:drizzle/recommended"],
+
+  rules: {
+    // drizzle
+    "drizzle/enforce-delete-with-where": [
+      "error",
+      {
+        drizzleObjectName: ["db", "tx", "localDb", "serverDb"],
+      },
+    ],
+    "drizzle/enforce-update-with-where": [
+      "error",
+      {
+        drizzleObjectName: ["db", "tx", "localDb", "serverDb"],
+      },
+    ],
+  },
 
   overrides: [
     // React

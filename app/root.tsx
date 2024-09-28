@@ -1,6 +1,7 @@
+import type { LinksFunction } from "@remix-run/node";
 import {
+  ClientLoaderFunctionArgs,
   Form,
-  json,
   Links,
   Meta,
   NavLink,
@@ -12,29 +13,40 @@ import {
   useNavigation,
   useSubmit,
 } from "@remix-run/react";
-import type { LinksFunction, LoaderFunctionArgs } from "@remix-run/node";
-import appStylesHref from "./app.css?url";
-import { createEmptyContact, getContacts } from "./data";
+import { asc, sql } from "drizzle-orm";
 import { useEffect } from "react";
+import appStylesHref from "./app.css?url";
+import { db } from "./database/.client/db";
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: appStylesHref },
 ];
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
+export const clientLoader = async ({ request }: ClientLoaderFunctionArgs) => {
   const url = new URL(request.url);
   const q = url.searchParams.get("q");
-  const contacts = await getContacts(q);
-  return json({ contacts, q });
+
+  const contacts = await db.query.contact.findMany({
+    where: q
+      ? sql`${db.schema.contact.fts} @@ to_tsquery(${q
+          .split(" ")
+          .filter((word) => word.length > 0)
+          .map((word) => word + ":*")
+          .join(" | ")}
+      )`
+      : undefined,
+    orderBy: asc(db.schema.contact.first),
+  });
+
+  return { contacts, q };
 };
 
-export const action = async () => {
-  const contact = await createEmptyContact();
-  return redirect(`/contacts/${contact.id}/edit`);
+export const clientAction = async () => {
+  return redirect(`/contacts/new/edit`);
 };
 
 export default function App() {
-  const { contacts, q } = useLoaderData<typeof loader>();
+  const { contacts, q } = useLoaderData<typeof clientLoader>();
   const navigation = useNavigation();
   const submit = useSubmit();
   const searching =
